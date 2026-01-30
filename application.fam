@@ -10,8 +10,8 @@ App(
     # Optional values
     fap_description="Send IR commands after timed duration",
     fap_version="0.1",  # (major, minor)
-    fap_icon="demo_app.png",  # 10x10 1-bit PNG
-    # fap_author="A. Damsgaard",
+    # fap_icon="demo_app.png",  # 10x10 1-bit PNG
+    fap_author="A. Damsgaard",
     # fap_weburl="https://src.adamsgaard.dk/timed-remote",
     fap_icon_assets="images",  # Image assets to compile for this application
 )
