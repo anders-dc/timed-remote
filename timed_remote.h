@@ -56,8 +56,7 @@ typedef struct {
   uint8_t seconds;
 
   /* Repeat options (Countdown mode only) */
-  bool repeat_enabled;
-  uint8_t repeat_count; /* 0 = unlimited */
+  uint8_t repeat_count; /* 0 = off, 255 = unlimited, 1-99 = count */
   uint8_t repeats_remaining;
 
   /* Timer runtime state */

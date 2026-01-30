@@ -7,7 +7,6 @@ enum {
   TimerConfigIndexMinutes,
   TimerConfigIndexSeconds,
   TimerConfigIndexRepeat,
-  TimerConfigIndexCount,
   TimerConfigIndexConfirm,
 };
 
@@ -20,7 +19,7 @@ static void timer_config_mode_change(VariableItem *item) {
 
   /* Disable repeat in scheduled mode */
   if (app->timer_mode == TimerModeScheduled) {
-    app->repeat_enabled = false;
+    app->repeat_count = 0;
   }
 
   /* Trigger rebuild to show/hide repeat options */
@@ -58,20 +57,19 @@ static void timer_config_seconds_change(VariableItem *item) {
 static void timer_config_repeat_change(VariableItem *item) {
   TimedRemoteApp *app = variable_item_get_context(item);
   uint8_t index = variable_item_get_current_value_index(item);
-  app->repeat_enabled = (index == 1);
-  variable_item_set_current_value_text(item,
-                                       app->repeat_enabled ? "On" : "Off");
-}
-
-static void timer_config_count_change(VariableItem *item) {
-  TimedRemoteApp *app = variable_item_get_context(item);
-  uint8_t index = variable_item_get_current_value_index(item);
-  app->repeat_count = index; /* 0 = unlimited, 1-99 = fixed */
 
   char buf[16];
-  if (app->repeat_count == 0) {
+  if (index == 0) {
+    /* Off */
+    app->repeat_count = 0;
+    snprintf(buf, sizeof(buf), "Off");
+  } else if (index == 1) {
+    /* Unlimited */
+    app->repeat_count = 255;
     snprintf(buf, sizeof(buf), "Unlimited");
   } else {
+    /* 1, 2, 3, ... 99 */
+    app->repeat_count = index - 1;
     snprintf(buf, sizeof(buf), "%d", app->repeat_count);
   }
   variable_item_set_current_value_text(item, buf);
@@ -79,7 +77,7 @@ static void timer_config_count_change(VariableItem *item) {
 
 static void timer_config_enter_callback(void *context, uint32_t index) {
   TimedRemoteApp *app = context;
-  /* In countdown mode, confirm is at index 6, in scheduled mode it's at index 4 */
+  /* In countdown mode, confirm is at index 5, in scheduled mode it's at index 4 */
   uint32_t confirm_index = app->timer_mode == TimerModeCountdown
                                ? TimerConfigIndexConfirm
                                : (TimerConfigIndexSeconds + 1);
@@ -126,18 +124,25 @@ static void build_timer_config_list(TimedRemoteApp *app) {
 
   /* Repeat options - only for countdown mode */
   if (app->timer_mode == TimerModeCountdown) {
-    /* Repeat toggle: Off/On */
-    item = variable_item_list_add(app->variable_item_list, "Repeat", 2,
+    /* Repeat: Off, Unlimited, 1, 2, 3, ... 99 (total 101 values) */
+    item = variable_item_list_add(app->variable_item_list, "Repeat", 101,
                                   timer_config_repeat_change, app);
-    variable_item_set_current_value_index(item, app->repeat_enabled ? 1 : 0);
-    variable_item_set_current_value_text(item,
-                                         app->repeat_enabled ? "On" : "Off");
 
-    /* Repeat count: 0 = unlimited, 1-99 = fixed */
-    item = variable_item_list_add(app->variable_item_list, "Count", 100,
-                                  timer_config_count_change, app);
-    variable_item_set_current_value_index(item, app->repeat_count);
+    /* Convert repeat_count to index */
+    uint8_t repeat_index;
     if (app->repeat_count == 0) {
+      repeat_index = 0; /* Off */
+    } else if (app->repeat_count == 255) {
+      repeat_index = 1; /* Unlimited */
+    } else {
+      repeat_index = app->repeat_count + 1; /* 1-99 */
+    }
+    variable_item_set_current_value_index(item, repeat_index);
+
+    /* Set display text */
+    if (app->repeat_count == 0) {
+      variable_item_set_current_value_text(item, "Off");
+    } else if (app->repeat_count == 255) {
       variable_item_set_current_value_text(item, "Unlimited");
     } else {
       snprintf(buf, sizeof(buf), "%d", app->repeat_count);
@@ -171,11 +176,17 @@ bool timed_remote_scene_timer_config_on_event(void *context,
       build_timer_config_list(app);
       consumed = true;
     } else if (event.event == TimedRemoteEventTimerConfigured) {
-      /* Initialize repeats remaining */
-      app->repeats_remaining =
-          app->repeat_enabled
-              ? (app->repeat_count == 0 ? 255 : app->repeat_count)
-              : 1;
+      /* Initialize repeats remaining based on repeat_count encoding */
+      if (app->repeat_count == 0) {
+        /* Off - single execution */
+        app->repeats_remaining = 1;
+      } else if (app->repeat_count == 255) {
+        /* Unlimited */
+        app->repeats_remaining = 255;
+      } else {
+        /* Fixed count (1-99): initial + N repeats = N+1 total executions */
+        app->repeats_remaining = app->repeat_count + 1;
+      }
       scene_manager_next_scene(app->scene_manager,
                                TimedRemoteSceneTimerRunning);
       consumed = true;

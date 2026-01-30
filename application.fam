@@ -2,7 +2,7 @@
 
 App(
     appid="timed_remote",  # Must be unique
-    name="App timed_remote",  # Displayed in UI
+    name="Timed Remote",  # Displayed in UI
     apptype=FlipperAppType.EXTERNAL,
     entry_point="timed_remote_app",
     stack_size=4 * 1024,

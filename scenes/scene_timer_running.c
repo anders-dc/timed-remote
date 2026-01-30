@@ -22,13 +22,15 @@ static void update_display(TimedRemoteApp *app) {
   widget_add_string_element(app->widget, 64, 25, AlignCenter, AlignTop,
                             FontBigNumbers, time_str);
 
-  if (app->repeat_enabled && app->repeat_count > 0) {
+  if (app->repeat_count > 0 && app->repeat_count < 255) {
+    /* Fixed repeat count (1-99) */
     char repeat_str[24];
     snprintf(repeat_str, sizeof(repeat_str), "Repeat: %d/%d",
              app->repeat_count - app->repeats_remaining + 1, app->repeat_count);
     widget_add_string_element(app->widget, 64, 52, AlignCenter, AlignTop,
                               FontSecondary, repeat_str);
-  } else if (app->repeat_enabled) {
+  } else if (app->repeat_count == 255) {
+    /* Unlimited repeat */
     widget_add_string_element(app->widget, 64, 52, AlignCenter, AlignTop,
                               FontSecondary, "Repeat: Unlimited");
   }
@@ -54,7 +56,7 @@ void timed_remote_scene_timer_running_on_enter(void *context) {
   }
 
   /* Initialize repeat tracking for non-repeat or scheduled */
-  if (!app->repeat_enabled) {
+  if (app->repeat_count == 0) {
     app->repeats_remaining = 1;
   }
 
@@ -92,7 +94,7 @@ bool timed_remote_scene_timer_running_on_event(void *context,
 
       app->repeats_remaining--;
 
-      if (app->repeat_enabled && app->repeats_remaining > 0) {
+      if (app->repeat_count != 0 && app->repeats_remaining > 0) {
         /* Reset countdown for next repeat */
         app->seconds_remaining =
             time_helper_hms_to_seconds(app->hours, app->minutes, app->seconds);
