@@ -2,6 +2,8 @@
 
 #include <flipper_format/flipper_format.h>
 #include <furi.h>
+#include <furi_hal_power.h>
+#include <infrared_transmit.h>
 #include <infrared/worker/infrared_worker.h>
 #include <lib/infrared/signal/infrared_error_code.h>
 #include <storage/storage.h>
@@ -94,7 +96,23 @@ bool ir_helper_load_file(const char *path, IrSignalList *list) {
 /* ========== Transmit ========== */
 
 void ir_helper_transmit(InfraredSignal *signal) {
+  // Detect external module and configure accordingly
+  FuriHalInfraredTxPin output_pin = furi_hal_infrared_detect_tx_output();
+  bool using_external = (output_pin == FuriHalInfraredTxPinExtPA7);
+
+  if (using_external) {
+    furi_hal_power_enable_otg();
+  }
+
+  furi_hal_infrared_set_tx_output(output_pin);
+
   infrared_signal_transmit(signal);
+
+  // Cleanup: Reset to internal and disable power if external
+  if (using_external) {
+    furi_hal_power_disable_otg();
+  }
+  furi_hal_infrared_set_tx_output(FuriHalInfraredTxPinInternal);
 }
 
 /* ========== File Browser ========== */
