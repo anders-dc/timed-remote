@@ -21,8 +21,8 @@ typedef struct
 } IrSignalList;
 
 IrSignalList *ir_list_alloc(void);
-void ir_list_free(IrSignalList *list);
-bool ir_load(const char *path, IrSignalList *list);
-void ir_tx(InfraredSignal *signal);
-bool ir_files(const char *dir_path, FuriString ***files, size_t *count);
-void ir_files_free(FuriString **files, size_t count);
+void ir_list_free(IrSignalList *);
+bool ir_load(const char *, IrSignalList *);
+void ir_tx(InfraredSignal *);
+bool ir_files(const char *, FuriString ***, size_t *);
+void ir_files_free(FuriString **, size_t);

@@ -2,39 +2,50 @@
 #include "timed_remote_scene.h"
 
 static void
-done_cb(void *context)
+on_popup_done(void *context)
 {
-	TimedRemoteApp *a = context;
-	view_dispatcher_send_custom_event(a->vd, EvDone);
+	TimedRemoteApp *app;
+
+	app = context;
+	view_dispatcher_send_custom_event(app->vd, EVENT_DONE);
 }
 
 void
 scene_done_enter(void *context)
 {
-	TimedRemoteApp *a = context;
-	popup_reset(a->popup);
-	popup_set_header(a->popup, "Signal Sent!", 64, 20, AlignCenter, AlignCenter);
-	popup_set_text(a->popup, a->sig, 64, 35, AlignCenter, AlignCenter);
-	popup_set_timeout(a->popup, 2000);
-	popup_set_context(a->popup, a);
-	popup_set_callback(a->popup, done_cb);
-	popup_enable_timeout(a->popup);
-	view_dispatcher_switch_to_view(a->vd, ViewPop);
+	TimedRemoteApp *app;
+
+	app = context;
+	popup_reset(app->popup);
+	popup_set_header(app->popup, "Signal Sent!", 64, 20, AlignCenter, AlignCenter);
+	popup_set_text(app->popup, app->sig, 64, 35, AlignCenter, AlignCenter);
+	popup_set_timeout(app->popup, 2000);
+	popup_set_context(app->popup, app);
+	popup_set_callback(app->popup, on_popup_done);
+	popup_enable_timeout(app->popup);
+	view_dispatcher_switch_to_view(app->vd, VIEW_POP);
 }
 
 bool
 scene_done_event(void *context, SceneManagerEvent event)
 {
-	TimedRemoteApp *a = context;
-	if (event.type != SceneManagerEventTypeCustom || event.event != EvDone)
+	TimedRemoteApp *app;
+
+	app = context;
+	if (event.type != SceneManagerEventTypeCustom)
 		return false;
-	scene_manager_search_and_switch_to_previous_scene(a->sm, ScBrowse);
+	if (event.event != EVENT_DONE)
+		return false;
+
+	scene_manager_search_and_switch_to_previous_scene(app->sm, SCENE_BROWSE);
 	return true;
 }
 
 void
 scene_done_exit(void *context)
 {
-	TimedRemoteApp *a = context;
-	popup_reset(a->popup);
+	TimedRemoteApp *app;
+
+	app = context;
+	popup_reset(app->popup);
 }

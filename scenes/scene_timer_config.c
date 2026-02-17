@@ -1,199 +1,246 @@
+#include <stdio.h>
+
 #include "../timed_remote.h"
 #include "timed_remote_scene.h"
 
 enum
 {
-	IdxMode,
-	IdxH,
-	IdxM,
-	IdxS,
-	IdxRepeat,
-	IdxStart,
+	ITEM_MODE,
+	ITEM_HOURS,
+	ITEM_MINUTES,
+	ITEM_SECONDS,
+	ITEM_REPEAT,
+	ITEM_START,
 };
 
-#define REP_OFF 0U
-#define REP_INF 255U
+#define REPEAT_OFF 0U
+#define REPEAT_UNLIMITED 255U
+
+static void	add_time_item(VariableItemList *, const char *, uint8_t, uint8_t,
+	    VariableItemChangeCallback, TimedRemoteApp *);
+static void	build_items(TimedRemoteApp *);
+static uint8_t	index_from_repeat(uint8_t);
+static void	set_repeat_text(VariableItem *, uint8_t);
+static uint8_t	repeat_from_index(uint8_t);
+static void	set_two_digits(VariableItem *, uint8_t);
+static uint32_t	start_item_index(const TimedRemoteApp *);
 
 static void
-set2(VariableItem *it, uint8_t v)
+set_two_digits(VariableItem *item, uint8_t value)
 {
-	char s[4];
-	snprintf(s, sizeof(s), "%02d", v);
-	variable_item_set_current_value_text(it, s);
+	char text[4];
+
+	snprintf(text, sizeof(text), "%02d", value);
+	variable_item_set_current_value_text(item, text);
 }
 
 static uint8_t
-rep_from_idx(uint8_t i)
+repeat_from_index(uint8_t index)
 {
-	if (i == 0)
-		return REP_OFF;
-	if (i == 1)
-		return REP_INF;
-	return i - 1;
+	if (index == 0)
+		return REPEAT_OFF;
+	if (index == 1)
+		return REPEAT_UNLIMITED;
+	return index - 1;
 }
 
 static uint8_t
-idx_from_rep(uint8_t r)
+index_from_repeat(uint8_t repeat)
 {
-	if (r == REP_OFF)
+	if (repeat == REPEAT_OFF)
 		return 0;
-	if (r == REP_INF)
+	if (repeat == REPEAT_UNLIMITED)
 		return 1;
-	return r + 1;
+	return repeat + 1;
 }
 
 static void
-set_rep(VariableItem *it, uint8_t r)
+set_repeat_text(VariableItem *item, uint8_t repeat)
 {
-	if (r == REP_OFF)
-	{
-		variable_item_set_current_value_text(it, "Off");
+	char text[16];
+
+	if (repeat == REPEAT_OFF) {
+		variable_item_set_current_value_text(item, "Off");
 		return;
 	}
-	if (r == REP_INF)
-	{
-		variable_item_set_current_value_text(it, "Unlimited");
+	if (repeat == REPEAT_UNLIMITED) {
+		variable_item_set_current_value_text(item, "Unlimited");
 		return;
 	}
-	char s[16];
-	snprintf(s, sizeof(s), "%u", r);
-	variable_item_set_current_value_text(it, s);
+
+	snprintf(text, sizeof(text), "%u", repeat);
+	variable_item_set_current_value_text(item, text);
 }
 
 static uint32_t
-start_idx(const TimedRemoteApp *a)
+start_item_index(const TimedRemoteApp *app)
 {
-	if (a->mode == ModeDown)
-		return IdxStart;
-	return IdxRepeat;
+	if (app->mode == MODE_COUNTDOWN)
+		return ITEM_START;
+	return ITEM_REPEAT;
 }
 
 static void
-mode_chg(VariableItem *it)
+on_mode_change(VariableItem *item)
 {
-	TimedRemoteApp *a = variable_item_get_context(it);
-	a->mode = variable_item_get_current_value_index(it) == 0
-		? ModeDown
-		: ModeSched;
+	TimedRemoteApp *app;
+	uint8_t mode_index;
+
+	app = variable_item_get_context(item);
+	mode_index = variable_item_get_current_value_index(item);
+	app->mode = mode_index == 0 ? MODE_COUNTDOWN : MODE_SCHEDULED;
 	variable_item_set_current_value_text(
-					     it, a->mode == ModeDown ? "Countdown" : "Scheduled");
-	if (a->mode == ModeSched)
-		a->repeat = REP_OFF;
-	view_dispatcher_send_custom_event(a->vd, EvMode);
+	    item,
+	    app->mode == MODE_COUNTDOWN ? "Countdown" : "Scheduled");
+	if (app->mode == MODE_SCHEDULED)
+		app->repeat = REPEAT_OFF;
+
+	view_dispatcher_send_custom_event(app->vd, EVENT_MODE_CHANGED);
 }
 
 static void
-h_chg(VariableItem *it)
+on_hours_change(VariableItem *item)
 {
-	TimedRemoteApp *a = variable_item_get_context(it);
-	a->h = variable_item_get_current_value_index(it);
-	set2(it, a->h);
+	TimedRemoteApp *app;
+
+	app = variable_item_get_context(item);
+	app->h = variable_item_get_current_value_index(item);
+	set_two_digits(item, app->h);
 }
 
 static void
-m_chg(VariableItem *it)
+on_minutes_change(VariableItem *item)
 {
-	TimedRemoteApp *a = variable_item_get_context(it);
-	a->m = variable_item_get_current_value_index(it);
-	set2(it, a->m);
+	TimedRemoteApp *app;
+
+	app = variable_item_get_context(item);
+	app->m = variable_item_get_current_value_index(item);
+	set_two_digits(item, app->m);
 }
 
 static void
-s_chg(VariableItem *it)
+on_seconds_change(VariableItem *item)
 {
-	TimedRemoteApp *a = variable_item_get_context(it);
-	a->s = variable_item_get_current_value_index(it);
-	set2(it, a->s);
+	TimedRemoteApp *app;
+
+	app = variable_item_get_context(item);
+	app->s = variable_item_get_current_value_index(item);
+	set_two_digits(item, app->s);
 }
 
 static void
-rep_chg(VariableItem *it)
+on_repeat_change(VariableItem *item)
 {
-	TimedRemoteApp *a = variable_item_get_context(it);
-	a->repeat = rep_from_idx(variable_item_get_current_value_index(it));
-	set_rep(it, a->repeat);
+	TimedRemoteApp *app;
+
+	app = variable_item_get_context(item);
+	app->repeat = repeat_from_index(variable_item_get_current_value_index(item));
+	set_repeat_text(item, app->repeat);
 }
 
 static void
-enter_cb(void *ctx, uint32_t i)
+on_enter(void *context, uint32_t index)
 {
-	TimedRemoteApp *a = ctx;
-	if (i != start_idx(a))
+	TimedRemoteApp *app;
+
+	app = context;
+	if (index != start_item_index(app))
 		return;
-	view_dispatcher_send_custom_event(a->vd, EvCfg);
+
+	view_dispatcher_send_custom_event(app->vd, EVENT_TIMER_CONFIGURED);
 }
 
 static void
-add_tm(VariableItemList *l, const char *n, uint8_t nvals, uint8_t v, VariableItemChangeCallback cb, TimedRemoteApp *a)
+add_time_item(VariableItemList *list,
+    const char *name,
+    uint8_t value_count,
+    uint8_t value,
+    VariableItemChangeCallback callback,
+    TimedRemoteApp *app)
 {
-	VariableItem *it = variable_item_list_add(l, n, nvals, cb, a);
-	variable_item_set_current_value_index(it, v);
-	set2(it, v);
+	VariableItem *item;
+
+	item = variable_item_list_add(list, name, value_count, callback, app);
+	variable_item_set_current_value_index(item, value);
+	set_two_digits(item, value);
 }
 
 static void
-build(TimedRemoteApp *a)
+build_items(TimedRemoteApp *app)
 {
-	variable_item_list_reset(a->vlist);
+	VariableItem *item;
 
-	VariableItem *it = variable_item_list_add(a->vlist, "Mode", 2, mode_chg, a);
-	variable_item_set_current_value_index(it, a->mode == ModeDown ? 0 : 1);
+	variable_item_list_reset(app->vlist);
+
+	item = variable_item_list_add(app->vlist, "Mode", 2, on_mode_change, app);
+	variable_item_set_current_value_index(
+	    item,
+	    app->mode == MODE_COUNTDOWN ? 0 : 1);
 	variable_item_set_current_value_text(
-					     it, a->mode == ModeDown ? "Countdown" : "Scheduled");
+	    item,
+	    app->mode == MODE_COUNTDOWN ? "Countdown" : "Scheduled");
 
-	add_tm(a->vlist, "Hours", 24, a->h, h_chg, a);
-	add_tm(a->vlist, "Minutes", 60, a->m, m_chg, a);
-	add_tm(a->vlist, "Seconds", 60, a->s, s_chg, a);
+	add_time_item(app->vlist, "Hours", 24, app->h, on_hours_change, app);
+	add_time_item(app->vlist, "Minutes", 60, app->m, on_minutes_change, app);
+	add_time_item(app->vlist, "Seconds", 60, app->s, on_seconds_change, app);
 
-	if (a->mode == ModeDown)
-	{
-		it = variable_item_list_add(a->vlist, "Repeat", 101, rep_chg, a);
-		variable_item_set_current_value_index(it, idx_from_rep(a->repeat));
-		set_rep(it, a->repeat);
+	if (app->mode == MODE_COUNTDOWN) {
+		item = variable_item_list_add(
+		    app->vlist,
+		    "Repeat",
+		    101,
+		    on_repeat_change,
+		    app);
+		variable_item_set_current_value_index(item, index_from_repeat(app->repeat));
+		set_repeat_text(item, app->repeat);
 	}
 
-	variable_item_list_add(a->vlist, ">> Start Timer <<", 0, NULL, NULL);
-	variable_item_list_set_enter_callback(a->vlist, enter_cb, a);
+	variable_item_list_add(app->vlist, ">> Start Timer <<", 0, NULL, NULL);
+	variable_item_list_set_enter_callback(app->vlist, on_enter, app);
 }
 
 void
 scene_cfg_enter(void *context)
 {
-	TimedRemoteApp *a = context;
-	build(a);
-	view_dispatcher_switch_to_view(a->vd, ViewList);
+	TimedRemoteApp *app;
+
+	app = context;
+	build_items(app);
+	view_dispatcher_switch_to_view(app->vd, VIEW_LIST);
 }
 
 bool
 scene_cfg_event(void *context, SceneManagerEvent event)
 {
-	TimedRemoteApp *a = context;
+	TimedRemoteApp *app;
+
+	app = context;
 	if (event.type != SceneManagerEventTypeCustom)
 		return false;
-	if (event.event == EvMode)
-	{
-		build(a);
+
+	if (event.event == EVENT_MODE_CHANGED) {
+		build_items(app);
 		return true;
 	}
-	if (event.event != EvCfg)
+	if (event.event != EVENT_TIMER_CONFIGURED)
 		return false;
-	if (a->repeat == REP_OFF)
-	{
-		a->repeat_left = 1;
-	} else if (a->repeat == REP_INF)
-	{
-		a->repeat_left = REP_INF;
-	} else
-	{
-		a->repeat_left = a->repeat + 1;
-	}
-	scene_manager_next_scene(a->sm, ScRun);
+
+	if (app->repeat == REPEAT_OFF)
+		app->repeat_left = 1;
+	else if (app->repeat == REPEAT_UNLIMITED)
+		app->repeat_left = REPEAT_UNLIMITED;
+	else
+		app->repeat_left = app->repeat + 1;
+
+	scene_manager_next_scene(app->sm, SCENE_RUN);
 	return true;
 }
 
 void
 scene_cfg_exit(void *context)
 {
-	TimedRemoteApp *a = context;
-	variable_item_list_reset(a->vlist);
+	TimedRemoteApp *app;
+
+	app = context;
+	variable_item_list_reset(app->vlist);
 }

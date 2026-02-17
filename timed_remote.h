@@ -12,16 +12,16 @@
 
 typedef enum
 {
-	ModeDown,
-	ModeSched,
+	MODE_COUNTDOWN,
+	MODE_SCHEDULED,
 } ModeId;
 
 typedef enum
 {
-	ViewMenu,
-	ViewList,
-	ViewRun,
-	ViewPop,
+	VIEW_MENU,
+	VIEW_LIST,
+	VIEW_RUN,
+	VIEW_POP,
 } ViewId;
 
 #define SIGNAL_NAME_MAX_LEN 32
@@ -55,4 +55,4 @@ typedef struct
 } TimedRemoteApp;
 
 TimedRemoteApp *timed_remote_app_alloc(void);
-void timed_remote_app_free(TimedRemoteApp *app);
+void timed_remote_app_free(TimedRemoteApp *);
