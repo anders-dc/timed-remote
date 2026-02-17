@@ -3,134 +3,130 @@
 #include "../timed_remote.h"
 #include "timed_remote_scene.h"
 
-static void timer_callback(void *context) {
-  TimedRemoteApp *app = context;
-  view_dispatcher_send_custom_event(app->view_dispatcher,
-                                    TimedRemoteEventTimerTick);
+static void
+tick_cb(void *context)
+{
+	TimedRemoteApp *a = context;
+	view_dispatcher_send_custom_event(a->vd, EvTick);
 }
 
-static void update_display(TimedRemoteApp *app) {
-  uint8_t h, m, s;
-  time_helper_seconds_to_hms(app->seconds_remaining, &h, &m, &s);
-
-  char time_str[16];
-  snprintf(time_str, sizeof(time_str), "%02d:%02d:%02d", h, m, s);
-
-  widget_reset(app->widget);
-  widget_add_string_element(app->widget, 64, 5, AlignCenter, AlignTop,
-                            FontSecondary, app->signal_name);
-  widget_add_string_element(app->widget, 64, 25, AlignCenter, AlignTop,
-                            FontBigNumbers, time_str);
-
-  if (app->repeat_count > 0 && app->repeat_count < 255) {
-    /* Fixed repeat count (1-99) */
-    char repeat_str[24];
-    snprintf(repeat_str, sizeof(repeat_str), "Repeat: %d/%d",
-             app->repeat_count - app->repeats_remaining + 1, app->repeat_count);
-    widget_add_string_element(app->widget, 64, 52, AlignCenter, AlignTop,
-                              FontSecondary, repeat_str);
-  } else if (app->repeat_count == 255) {
-    /* Unlimited repeat */
-    widget_add_string_element(app->widget, 64, 52, AlignCenter, AlignTop,
-                              FontSecondary, "Repeat: Unlimited");
-  }
+static uint32_t
+countdown(const TimedRemoteApp *a)
+{
+	return time_hms_sec(a->h, a->m, a->s);
 }
 
-void timed_remote_scene_timer_running_on_enter(void *context) {
-  TimedRemoteApp *app = context;
+static void
+redraw(TimedRemoteApp *a)
+{
+	uint8_t h, m, s;
+	time_sec_hms(a->left, &h, &m, &s);
 
-  /* Calculate initial remaining time */
-  if (app->timer_mode == TimerModeCountdown) {
-    app->seconds_remaining =
-        time_helper_hms_to_seconds(app->hours, app->minutes, app->seconds);
-  } else {
-    /* Scheduled mode - calculate time until target */
-    app->seconds_remaining =
-        time_helper_seconds_until(app->hours, app->minutes, app->seconds);
-    if (app->seconds_remaining == 0) {
-      /* Target time already passed - fire immediately */
-      view_dispatcher_send_custom_event(app->view_dispatcher,
-                                        TimedRemoteEventTimerFired);
-      return;
-    }
-  }
+	char t[16];
+	snprintf(t, sizeof(t), "%02d:%02d:%02d", h, m, s);
 
-  /* Initialize repeat tracking for non-repeat or scheduled */
-  if (app->repeat_count == 0) {
-    app->repeats_remaining = 1;
-  }
-
-  update_display(app);
-  view_dispatcher_switch_to_view(app->view_dispatcher, TimedRemoteViewWidget);
-
-  /* Start 1-second timer */
-  app->timer = furi_timer_alloc(timer_callback, FuriTimerTypePeriodic, app);
-  furi_timer_start(app->timer, furi_kernel_get_tick_frequency()); /* 1 second */
+	widget_reset(a->widget);
+	widget_add_string_element(a->widget, 64, 5, AlignCenter, AlignTop, FontSecondary, a->sig);
+	widget_add_string_element(a->widget, 64, 25, AlignCenter, AlignTop, FontBigNumbers, t);
+	if (a->repeat > 0 && a->repeat < 255)
+	{
+		char r[24];
+		snprintf(r, sizeof(r), "Repeat: %d/%d", a->repeat - a->repeat_left + 1, a->repeat);
+		widget_add_string_element(a->widget, 64, 52, AlignCenter, AlignTop, FontSecondary, r);
+	} else if (a->repeat == 255)
+	{
+		widget_add_string_element(
+					a->widget, 64, 52, AlignCenter, AlignTop, FontSecondary, "Repeat: Unlimited");
+	}
 }
 
-bool timed_remote_scene_timer_running_on_event(void *context,
-                                               SceneManagerEvent event) {
-  TimedRemoteApp *app = context;
-  bool consumed = false;
+void
+scene_run_enter(void *context)
+{
+	TimedRemoteApp *a = context;
 
-  if (event.type == SceneManagerEventTypeCustom) {
-    if (event.event == TimedRemoteEventTimerTick) {
-      if (app->seconds_remaining > 0) {
-        app->seconds_remaining--;
-        update_display(app);
-      }
+	if (a->mode == ModeDown)
+	{
+		a->left = countdown(a);
+	} else
+	{
+		a->left = time_until(a->h, a->m, a->s);
+		if (a->left == 0)
+		{
+			view_dispatcher_send_custom_event(a->vd, EvFire);
+			return;
+		}
+	}
 
-      if (app->seconds_remaining == 0) {
-        /* Timer fired! */
-        view_dispatcher_send_custom_event(app->view_dispatcher,
-                                          TimedRemoteEventTimerFired);
-      }
-      consumed = true;
-    } else if (event.event == TimedRemoteEventTimerFired) {
-      /* Transmit IR signal */
-      if (app->ir_signal) {
-        ir_helper_transmit(app->ir_signal);
-      }
+	if (a->repeat == 0)
+		a->repeat_left = 1;
 
-      if (app->repeat_count == 255) {
-        /* Unlimited repeat */
-        app->seconds_remaining =
-            time_helper_hms_to_seconds(app->hours, app->minutes, app->seconds);
-        update_display(app);
-      } else {
-        app->repeats_remaining--;
+	redraw(a);
+	view_dispatcher_switch_to_view(a->vd, ViewRun);
 
-        if (app->repeat_count != 0 && app->repeats_remaining > 0) {
-          /* Reset countdown for next repeat */
-          app->seconds_remaining = time_helper_hms_to_seconds(
-              app->hours, app->minutes, app->seconds);
-          update_display(app);
-        } else {
-          /* Done - show confirmation */
-          scene_manager_next_scene(app->scene_manager, TimedRemoteSceneConfirm);
-        }
-      }
-      consumed = true;
-    }
-  } else if (event.type == SceneManagerEventTypeBack) {
-    /* User pressed Back - cancel timer */
-    scene_manager_search_and_switch_to_previous_scene(app->scene_manager,
-                                                      TimedRemoteSceneIrBrowse);
-    consumed = true;
-  }
-
-  return consumed;
+	a->timer = furi_timer_alloc(tick_cb, FuriTimerTypePeriodic, a);
+	if (!a->timer)
+		return;
+	furi_timer_start(a->timer, furi_kernel_get_tick_frequency());
 }
 
-void timed_remote_scene_timer_running_on_exit(void *context) {
-  TimedRemoteApp *app = context;
+bool
+scene_run_event(void *context, SceneManagerEvent event)
+{
+	TimedRemoteApp *a = context;
+	if (event.type == SceneManagerEventTypeBack)
+	{
+		scene_manager_search_and_switch_to_previous_scene(a->sm, ScBrowse);
+		return true;
+	}
+	if (event.type != SceneManagerEventTypeCustom)
+		return false;
+	if (event.event == EvTick)
+	{
+		if (a->left > 0)
+		{
+			a->left--;
+			redraw(a);
+		}
+		if (a->left == 0)
+			view_dispatcher_send_custom_event(a->vd, EvFire);
+		return true;
+	}
+	if (event.event != EvFire)
+		return false;
 
-  /* Stop and free timer */
-  if (app->timer) {
-    furi_timer_stop(app->timer);
-    furi_timer_free(app->timer);
-    app->timer = NULL;
-  }
+	if (a->ir)
+		ir_tx(a->ir);
 
-  widget_reset(app->widget);
+	if (a->repeat == 255)
+	{
+		a->left = countdown(a);
+		redraw(a);
+		return true;
+	}
+
+	if (a->repeat_left > 0)
+		a->repeat_left--;
+	if (a->repeat != 0 && a->repeat_left > 0)
+	{
+		a->left = countdown(a);
+		redraw(a);
+		return true;
+	}
+
+	scene_manager_next_scene(a->sm, ScDone);
+	return true;
+}
+
+void
+scene_run_exit(void *context)
+{
+	TimedRemoteApp *a = context;
+	if (a->timer)
+	{
+		furi_timer_stop(a->timer);
+		furi_timer_free(a->timer);
+		a->timer = NULL;
+	}
+	widget_reset(a->widget);
 }
